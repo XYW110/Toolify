@@ -131,6 +131,61 @@ client = OpenAI(
 
 Toolify 负责处理标准 OpenAI 工具格式与不支持的 LLM 所需的基于提示词的方法之间的转换。
 
+## 动态AI代理路由
+
+Toolify 现在支持通过 `/proxy` 端点进行动态AI代理路由。此功能允许您通过查询参数指定目标主机和路径，动态地将请求路由到任何兼容 OpenAI 的 AI 服务。
+
+### 功能特性
+
+- **动态路由**: 通过指定 `targetHost` 查询参数，将请求路由到任何上游 AI 服务
+- **完全兼容 OpenAI**: 接受与 OpenAI `chat/completions` 端点相同的 POST 请求格式，包括 `messages`、`tools`、`stream` 等字段
+- **函数调用支持**: 像原有的 `/v1/chat/completions` 路由一样，对请求进行函数调用注入的处理
+- **API 密钥处理**: 与原有路由保持一致的 API 密钥查找逻辑，即根据请求体中的 `model` 字段去 `config.yaml` 中查找
+
+### 使用方法
+
+要使用动态AI代理路由功能，请向 `/proxy` 端点发送 POST 请求，并包含以下参数：
+
+- **查询参数**: `targetHost` - 目标上游 AI 服务器的域名
+- **查询参数**: `path` - 目标服务器上的 API 路径（例如 `/v1/chat/completions`）
+- **请求体**: 标准的 OpenAI `chat/completions` 请求格式
+
+示例 curl 请求：
+```bash
+curl -X POST "http://localhost:8000/proxy?targetHost=api.openai.com&path=/v1/chat/completions" \
+  -H "Authorization: Bearer sk-my-secret-key-1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ],
+    "stream": false
+  }'
+```
+
+### Python 示例
+
+```python
+import requests
+
+response = requests.post(
+    'http://localhost:8000/proxy?targetHost=api.openai.com&path=/v1/chat/completions',
+    headers={'Authorization': 'Bearer sk-my-secret-key-1'},
+    json={
+        'model': 'gpt-3.5-turbo',
+        'messages': [{'role': 'user', 'content': 'Hello!'}],
+        'stream': False
+    }
+)
+
+if response.status_code == 200:
+    result = response.json()
+    print(result)
+else:
+    print(f"错误: {response.status_code} - {response.text}")
+```
+
 ## 许可证
 
 本项目采用 GPL-3.0-or-later 许可证。

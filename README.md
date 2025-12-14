@@ -131,6 +131,61 @@ client = OpenAI(
 
 Toolify handles the translation between the standard OpenAI tool format and the prompt-based method required by unsupported LLMs.
 
+## Dynamic AI Proxy Routing
+
+Toolify now supports dynamic AI proxy routing through the `/proxy` endpoint. This feature allows you to route requests to any OpenAI-compatible AI service dynamically by specifying the target host and path via query parameters.
+
+### Features
+
+- **Dynamic Routing**: Route requests to any upstream AI service by specifying the `targetHost` query parameter.
+- **Full OpenAI Compatibility**: Accepts the same POST request format as OpenAI's `chat/completions` endpoint, including `messages`, `tools`, `stream`, etc.
+- **Function Calling Support**: Processes requests with function calling injection, just like the original `/v1/chat/completions` route.
+- **API Key Handling**: Uses the same API key lookup logic as the original route, finding keys based on the `model` field in the request body from `config.yaml`.
+
+### Usage
+
+To use the dynamic AI proxy routing feature, send a POST request to the `/proxy` endpoint with the following parameters:
+
+- **Query Parameter**: `targetHost` - The domain of the target upstream AI server
+- **Query Parameter**: `path` - The API path on the target server (e.g., `/v1/chat/completions`)
+- **Request Body**: Standard OpenAI `chat/completions` request format
+
+Example curl request:
+```bash
+curl -X POST "http://localhost:8000/proxy?targetHost=api.openai.com&path=/v1/chat/completions" \
+  -H "Authorization: Bearer sk-my-secret-key-1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ],
+    "stream": false
+  }'
+```
+
+### Example with Python
+
+```python
+import requests
+
+response = requests.post(
+    'http://localhost:8000/proxy?targetHost=api.openai.com&path=/v1/chat/completions',
+    headers={'Authorization': 'Bearer sk-my-secret-key-1'},
+    json={
+        'model': 'gpt-3.5-turbo',
+        'messages': [{'role': 'user', 'content': 'Hello!'}],
+        'stream': False
+    }
+)
+
+if response.status_code == 200:
+    result = response.json()
+    print(result)
+else:
+    print(f"Error: {response.status_code} - {response.text}")
+```
+
 ## License
 
 This project is licensed under the GPL-3.0-or-later license.
