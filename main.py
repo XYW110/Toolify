@@ -979,6 +979,102 @@ async def general_exception_handler(request: Request, exc: Exception):
         }
     )
 
+async def _process_chat_request(
+    body: ChatCompletionRequest,
+    _api_key: str,
+    override_url: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    核心AI请求处理逻辑 - 提取为可重用辅助函数
+    
+    Args:
+        body: ChatCompletionRequest 请求体
+        _api_key: API密钥
+        override_url: 可选的上游URL覆盖
+        
+    Returns:
+        包含处理结果的字典:
+        {
+            "upstream_url": str,
+            "request_body": dict,
+            "headers": dict,
+            "has_function_call": bool,
+            "prompt_tokens": int
+        }
+    """
+    logger.debug(f"🔧 Starting core request processing, model: {body.model}")
+    logger.debug(f"🔧 Number of messages: {len(body.messages)}")
+    logger.debug(f"🔧 Number of tools: {len(body.tools) if body.tools else 0}")
+    
+    # 查找上游服务和实际模型
+    upstream, actual_model = find_upstream(body.model)
+    upstream_url = override_url or f"{upstream['base_url']}/chat/completions"
+    
+    logger.debug(f"🔧 Starting message preprocessing, original message count: {len(body.messages)}")
+    processed_messages = preprocess_messages(body.messages)
+    logger.debug(f"🔧 Preprocessing completed, processed message count: {len(processed_messages)}")
+    
+    if not validate_message_structure(processed_messages):
+        logger.error(f"❌ Message structure validation failed, but continuing processing")
+    
+    request_body_dict = body.model_dump(exclude_unset=True)
+    request_body_dict["model"] = actual_model
+    request_body_dict["messages"] = processed_messages
+    is_fc_enabled = app_config.features.enable_function_calling
+    has_tools_in_request = bool(body.tools)
+    has_function_call = is_fc_enabled and has_tools_in_request
+    
+    logger.debug(f"🔧 Request body constructed, message count: {len(processed_messages)}")
+    
+    # 处理函数调用逻辑
+    if has_function_call:
+        logger.debug(f"🔧 Using global trigger signal for this request: {GLOBAL_TRIGGER_SIGNAL}")
+        
+        function_prompt, _ = generate_function_prompt(body.tools, GLOBAL_TRIGGER_SIGNAL)
+        
+        tool_choice_prompt = safe_process_tool_choice(body.tool_choice)
+        if tool_choice_prompt:
+            function_prompt += tool_choice_prompt
+
+        system_message = {"role": "system", "content": function_prompt}
+        request_body_dict["messages"].insert(0, system_message)
+        
+        if "tools" in request_body_dict:
+            del request_body_dict["tools"]
+        if "tool_choice" in request_body_dict:
+            del request_body_dict["tool_choice"]
+
+    elif has_tools_in_request and not is_fc_enabled:
+        logger.info(f"🔧 Function calling is disabled by configuration, ignoring 'tools' and 'tool_choice' in request.")
+        if "tools" in request_body_dict:
+            del request_body_dict["tools"]
+        if "tool_choice" in request_body_dict:
+            del request_body_dict["tool_choice"]
+
+    # 计算token数量
+    prompt_tokens = token_counter.count_tokens(request_body_dict["messages"], body.model)
+    logger.info(f"📊 Request to {body.model} - Actual input tokens (including all preprocessing & injected prompts): {prompt_tokens}")
+
+    # 构建请求头
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {_api_key}" if app_config.features.key_passthrough else f"Bearer {upstream['api_key']}",
+        "Accept": "application/json" if not body.stream else "text/event-stream"
+    }
+
+    logger.info(f"📝 Core processing completed for upstream: {upstream['name']}")
+    logger.info(f"📝 Model: {request_body_dict.get('model', 'unknown')}, Messages: {len(request_body_dict.get('messages', []))}")
+
+    return {
+        "upstream_url": upstream_url,
+        "request_body": request_body_dict,
+        "headers": headers,
+        "has_function_call": has_function_call,
+        "prompt_tokens": prompt_tokens,
+        "upstream": upstream,
+        "actual_model": actual_model
+    }
+
 async def verify_api_key(authorization: str = Header(...)):
     """Dependency: verify client API key"""
     client_key = authorization.replace("Bearer ", "")
@@ -1084,51 +1180,18 @@ async def chat_completions(
         logger.debug(f"🔧 Number of tools: {len(body.tools) if body.tools else 0}")
         logger.debug(f"🔧 Streaming: {body.stream}")
         
-        upstream, actual_model = find_upstream(body.model)
-        upstream_url = f"{upstream['base_url']}/chat/completions"
+        # 使用新的辅助函数处理核心逻辑
+        processed_data = await _process_chat_request(body, _api_key)
+        upstream_url = processed_data["upstream_url"]
+        request_body_dict = processed_data["request_body"]
+        headers = processed_data["headers"]
+        has_function_call = processed_data["has_function_call"]
+        prompt_tokens = processed_data["prompt_tokens"]
+        upstream = processed_data["upstream"]
         
-        logger.debug(f"🔧 Starting message preprocessing, original message count: {len(body.messages)}")
-        processed_messages = preprocess_messages(body.messages)
-        logger.debug(f"🔧 Preprocessing completed, processed message count: {len(processed_messages)}")
+        logger.info(f"📝 Forwarding request to upstream: {upstream['name']}")
+        logger.info(f"📝 Model: {request_body_dict.get('model', 'unknown')}, Messages: {len(request_body_dict.get('messages', []))}")
         
-        if not validate_message_structure(processed_messages):
-            logger.error(f"❌ Message structure validation failed, but continuing processing")
-        
-        request_body_dict = body.model_dump(exclude_unset=True)
-        request_body_dict["model"] = actual_model
-        request_body_dict["messages"] = processed_messages
-        is_fc_enabled = app_config.features.enable_function_calling
-        has_tools_in_request = bool(body.tools)
-        has_function_call = is_fc_enabled and has_tools_in_request
-        
-        logger.debug(f"🔧 Request body constructed, message count: {len(processed_messages)}")
-        
-    except HTTPException as e:
-        # Preserve expected status codes (e.g., 400 for invalid tool_call_id history)
-        logger.error(f"❌ Request rejected: status_code={e.status_code}, detail={e.detail}")
-        return JSONResponse(
-            status_code=e.status_code,
-            content={
-                "error": {
-                    "message": str(e.detail),
-                    "type": "invalid_request_error" if e.status_code == 400 else (
-                        "authentication_error" if e.status_code == 401 else (
-                            "permission_error" if e.status_code == 403 else (
-                                "rate_limit_error" if e.status_code == 429 else "server_error"
-                            )
-                        )
-                    ),
-                    "code": "invalid_request" if e.status_code == 400 else (
-                        "unauthorized" if e.status_code == 401 else (
-                            "forbidden" if e.status_code == 403 else (
-                                "rate_limit_exceeded" if e.status_code == 429 else "internal_error"
-                            )
-                        )
-                    )
-                }
-            }
-        )
-
     except Exception as e:
         logger.error(f"❌ Request preprocessing failed: {str(e)}")
         logger.error(f"❌ Error type: {type(e).__name__}")
@@ -1702,6 +1765,312 @@ async def list_models(_api_key: str = Depends(verify_api_key)):
         "object": "list",
         "data": models
     }
+
+
+@app.api_route("/proxy", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def proxy_route(request: Request):
+    """
+    增强版代理路由 - 支持 POST 请求和 AI 处理能力
+    
+    Args:
+        request: FastAPI Request 对象
+    
+    Returns:
+        JSONResponse: 处理结果或错误响应
+    """
+    logger.info(f"🔄 收到代理请求 - 方法: {request.method}, 路径: /proxy")
+    
+    # 从请求的查询参数中安全地提取 targetHost
+    target_host = request.query_params.get("targetHost")
+    if not target_host:
+        logger.warning("⚠️ 缺少 targetHost 参数")
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing required query parameter: targetHost"}
+        )
+    
+    # 从查询参数中获取 path 并验证
+    path = request.query_params.get("path")
+    if not path:
+        logger.warning("⚠️ 缺少 path 参数")
+        return JSONResponse(
+            status_code=400,
+            content={"error": "path query parameter is required"}
+        )
+    
+    # 验证 API 密钥
+    try:
+        # 从请求头中获取 Authorization
+        authorization = request.headers.get("Authorization", "")
+        if not authorization:
+            logger.warning("🔑 缺少 Authorization 头")
+            raise HTTPException(status_code=401, detail="Missing Authorization header")
+        
+        # 调用 verify_api_key 函数进行验证
+        _api_key = await verify_api_key(authorization)
+        logger.debug(f"🔑 API 密钥验证通过")
+    except HTTPException as e:
+        logger.warning(f"🔑 API 密钥验证失败: {e.detail}")
+        raise e
+    
+    # 处理 POST 请求（AI 请求）
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            logger.debug(f"📦 收到 POST 请求体: {json.dumps(body, ensure_ascii=False)[:200]}...")
+            
+            # 调用核心 AI 处理函数
+            processed_data = await _process_chat_request(
+                body=ChatCompletionRequest(**body),
+                _api_key=_api_key,
+                override_url=f"https://{target_host}/{path}"
+            )
+            
+            upstream_url = processed_data["upstream_url"]
+            request_body_dict = processed_data["request_body"]
+            headers = processed_data["headers"]
+            has_function_call = processed_data["has_function_call"]
+            prompt_tokens = processed_data["prompt_tokens"]
+            upstream = processed_data["upstream"]
+            
+            logger.info(f"📝 AI 处理完成，准备转发到上游: {upstream['name']}")
+            logger.info(f"📝 模型: {request_body_dict.get('model', 'unknown')}, 消息数: {len(request_body_dict.get('messages', []))}")
+            
+            # 检查是否为非流式请求
+            is_streaming = body.get("stream", False)
+            
+            if not is_streaming:
+                # 非流式请求处理 - 复用 /v1/chat/completions 的逻辑
+                logger.debug(f"🔧 处理非流式请求，上游URL: {upstream_url}")
+                logger.debug(f"🔧 是否包含函数调用: {has_function_call}")
+                
+                start_time = time.time()
+                
+                # 发送请求到上游服务器
+                upstream_response = await http_client.post(
+                    upstream_url, json=request_body_dict, headers=headers, timeout=app_config.server.timeout
+                )
+                upstream_response.raise_for_status()
+                
+                response_json = upstream_response.json()
+                logger.debug(f"🔧 上游响应状态码: {upstream_response.status_code}")
+                
+                # 计算token使用量和处理响应 - 复用 /v1/chat/completions 的逻辑
+                completion_text = ""
+                if response_json.get("choices") and len(response_json["choices"]) > 0:
+                    content = response_json["choices"][0].get("message", {}).get("content")
+                    if content:
+                        completion_text = content
+                
+                # 计算预估的token数量
+                estimated_completion_tokens = token_counter.count_text_tokens(completion_text, body.get("model", "gpt-3.5-turbo")) if completion_text else 0
+                estimated_prompt_tokens = prompt_tokens
+                estimated_total_tokens = estimated_prompt_tokens + estimated_completion_tokens
+                elapsed_time = time.time() - start_time
+                
+                # 处理 usage 字段 - 复用 /v1/chat/completions 的逻辑
+                upstream_usage = response_json.get("usage", {})
+                if upstream_usage:
+                    # 保留上游的 usage 结构，只替换零值
+                    final_usage = upstream_usage.copy()
+                    
+                    # 替换零值或缺失值
+                    if not final_usage.get("prompt_tokens") or final_usage.get("prompt_tokens") == 0:
+                        final_usage["prompt_tokens"] = estimated_prompt_tokens
+                        logger.debug(f"🔧 替换零值/缺失的 prompt_tokens: {estimated_prompt_tokens}")
+                    
+                    if not final_usage.get("completion_tokens") or final_usage.get("completion_tokens") == 0:
+                        final_usage["completion_tokens"] = estimated_completion_tokens
+                        logger.debug(f"🔧 替换零值/缺失的 completion_tokens: {estimated_completion_tokens}")
+                    
+                    if not final_usage.get("total_tokens") or final_usage.get("total_tokens") == 0:
+                        final_usage["total_tokens"] = final_usage.get("prompt_tokens", estimated_prompt_tokens) + final_usage.get("completion_tokens", estimated_completion_tokens)
+                        logger.debug(f"🔧 替换零值/缺失的 total_tokens: {final_usage['total_tokens']}")
+                    
+                    response_json["usage"] = final_usage
+                    logger.debug(f"🔧 保留上游 usage 并替换零值: {final_usage}")
+                else:
+                    # 没有上游 usage，使用我们的估算
+                    response_json["usage"] = {
+                        "prompt_tokens": estimated_prompt_tokens,
+                        "completion_tokens": estimated_completion_tokens,
+                        "total_tokens": estimated_total_tokens
+                    }
+                    logger.debug(f"🔧 没有找到上游 usage，使用估算值")
+                
+                # 记录token统计信息
+                actual_usage = response_json["usage"]
+                logger.info("=" * 60)
+                logger.info(f"📊 Token 使用统计 - 模型: {body.get('model', 'unknown')}")
+                logger.info(f"   输入 Tokens: {actual_usage.get('prompt_tokens', 0)}")
+                logger.info(f"   输出 Tokens: {actual_usage.get('completion_tokens', 0)}")
+                logger.info(f"   总 Tokens: {actual_usage.get('total_tokens', 0)}")
+                logger.info(f"   耗时: {elapsed_time:.2f}s")
+                logger.info("=" * 60)
+                
+                # 处理函数调用 - 复用 /v1/chat/completions 的逻辑
+                if has_function_call:
+                    content = response_json["choices"][0]["message"]["content"]
+                    logger.debug(f"🔧 完整响应内容: {repr(content)}")
+                    
+                    parsed_tools = parse_function_calls_xml(content, GLOBAL_TRIGGER_SIGNAL)
+                    logger.debug(f"🔧 XML 解析结果: {parsed_tools}")
+                    
+                    if parsed_tools:
+                        logger.debug(f"🔧 成功解析 {len(parsed_tools)} 个工具调用")
+                        
+                        tool_calls = []
+                        for tool in parsed_tools:
+                            tool_call_id = f"call_{uuid.uuid4().hex}"
+                            store_tool_call_mapping(
+                                tool_call_id,
+                                tool["name"],
+                                tool["args"],
+                                f"调用工具 {tool['name']}"
+                            )
+                            tool_calls.append({
+                                "id": tool_call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool["name"],
+                                    "arguments": json.dumps(tool["args"])
+                                }
+                            })
+                        logger.debug(f"🔧 转换后的 tool_calls: {tool_calls}")
+                        
+                        response_json["choices"][0]["message"] = {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": tool_calls,
+                        }
+                        response_json["choices"][0]["finish_reason"] = "tool_calls"
+                        logger.debug(f"🔧 函数调用转换完成")
+                    else:
+                        logger.debug(f"🔧 未检测到工具调用，返回原始内容（包括思考块）")
+                else:
+                    logger.debug(f"🔧 未检测到函数调用或转换条件不满足")
+                
+                logger.info(f"✅ 非流式请求处理完成，上游: {upstream['name']}")
+                return JSONResponse(content=response_json)
+                
+            else:
+                # 流式请求处理 - 复用 /v1/chat/completions 的流式逻辑
+                logger.info(f"📝 检测到流式请求，启动流式转发")
+                logger.debug(f"🔧 流式请求参数: upstream_url={upstream_url}, model={request_body_dict.get('model')}, has_function_call={has_function_call}")
+                
+                # 调用流式代理函数，传递所有必要参数
+                stream_generator = stream_proxy_with_fc_transform(
+                    upstream_url,
+                    request_body_dict,
+                    headers,
+                    request_body_dict.get('model', 'unknown'),
+                    has_function_call,
+                    GLOBAL_TRIGGER_SIGNAL
+                )
+                
+                # 返回流式响应，设置正确的媒体类型
+                return StreamingResponse(
+                    stream_generator,
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive"
+                    }
+                )
+            
+        except ValidationError as e:
+            logger.error(f"❌ 请求体验证失败: {e.errors()}")
+            return JSONResponse(
+                status_code=422,
+                content={"error": "请求体格式错误", "details": e.errors()}
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ 上游服务响应错误: status_code={e.response.status_code}")
+            logger.error(f"❌ 上游错误详情: {e.response.text}")
+            
+            if e.response.status_code == 400:
+                error_response = {
+                    "error": {
+                        "message": "无效的请求参数",
+                        "type": "invalid_request_error",
+                        "code": "bad_request"
+                    }
+                }
+            elif e.response.status_code == 401:
+                error_response = {
+                    "error": {
+                        "message": "认证失败",
+                        "type": "authentication_error",
+                        "code": "invalid_api_key"
+                    }
+                }
+            elif e.response.status_code == 429:
+                error_response = {
+                    "error": {
+                        "message": "请求频率超限",
+                        "type": "rate_limit_error",
+                        "code": "rate_limit_exceeded"
+                    }
+                }
+            elif e.response.status_code == 500:
+                error_response = {
+                    "error": {
+                        "message": "上游服务器内部错误",
+                        "type": "server_error",
+                        "code": "upstream_error"
+                    }
+                }
+            else:
+                error_response = {
+                    "error": {
+                        "message": f"上游服务错误 ({e.response.status_code})",
+                        "type": "api_error",
+                        "code": f"http_{e.response.status_code}"
+                    }
+                }
+            return JSONResponse(status_code=e.response.status_code, content=error_response)
+        except Exception as e:
+            logger.error(f"❌ 处理 POST 请求时发生错误: {str(e)}")
+            logger.error(f"❌ 错误类型: {type(e).__name__}")
+            logger.error(f"❌ 错误堆栈: {traceback.format_exc()}")
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"内部服务器错误: {str(e)}"}
+            )
+    
+    # 处理其他 HTTP 方法（URL 构建逻辑）
+    else:
+        # 获取通过路径参数传入的 path
+        # path 已经是函数参数，无需额外获取
+        
+        # 构建完整的上游目标URL，格式为 https://<targetHost>/<path>
+        # 移除 targetHost 参数，避免重复
+        filtered_query_params = {}
+        for key, value in request.query_params.items():
+            if key.lower() != "targethost":  # 不区分大小写匹配
+                filtered_query_params[key] = value
+        
+        # 构建目标URL
+        target_url = f"https://{target_host}/{path}"
+        
+        # 如果存在其他查询参数，添加到URL后面
+        if filtered_query_params:
+            from urllib.parse import urlencode
+            query_string = urlencode(filtered_query_params, doseq=True)
+            target_url = f"{target_url}?{query_string}"
+        
+        # 返回构建好的目标URL（实际HTTP请求实现在后续任务中完成）
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "url_built_successfully",
+                "target_url": target_url,
+                "method": request.method,
+                "path": path,
+                "original_query_params": dict(request.query_params),
+                "filtered_query_params": filtered_query_params
+            }
+        )
 
 
 def validate_message_structure(messages: List[Dict[str, Any]]) -> bool:
