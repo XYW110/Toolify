@@ -244,13 +244,180 @@ version: "3.8"
 
 services:
   toolify:
-    image: ghcr.io/your-username/toolify:latest # Use your actual username
+    image: ghcr.io/xyw110/toolify:latest # Using your published image
     container_name: toolify
     ports:
       - "8000:8000"
     volumes:
       - ./config.yaml:/app/config.yaml
     restart: unless-stopped
+```
+
+#### Complete Docker Compose Setup Guide
+
+1. **Prepare your configuration file:**
+
+   ```bash
+   # Copy the example configuration
+   cp config.example.yaml config.yaml
+   # Edit the configuration file with your settings
+   # Make sure to set your API keys and upstream services
+   ```
+
+2. **Create or update your `docker-compose.yml` file:**
+
+   ```yaml
+   version: "3.8"
+
+   services:
+     toolify:
+       image: ghcr.io/xyw110/toolify:latest
+       container_name: toolify
+       ports:
+         - "8000:8000"
+       volumes:
+         - ./config.yaml:/app/config.yaml
+         # Optional: Add a named volume for logs
+         # - toolify_logs:/app/logs
+       environment:
+         - PYTHONUNBUFFERED=1
+       restart: unless-stopped
+       # Optional: Add health check
+       healthcheck:
+         test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+         interval: 30s
+         timeout: 10s
+         retries: 3
+         start_period: 40s
+   # Optional: Define named volumes
+   # volumes:
+   #   toolify_logs:
+   ```
+
+3. **Start the service:**
+
+   ```bash
+   # Start in background
+   docker-compose up -d
+
+   # Check the logs
+   docker-compose logs -f
+   ```
+
+4. **Verify the service is running:**
+
+   ```bash
+   # Check if the container is running
+   docker-compose ps
+
+   # Test the API
+   curl http://localhost:8000/
+   ```
+
+5. **Manage the service:**
+
+   ```bash
+   # Stop the service
+   docker-compose down
+
+   # Update to the latest image
+   docker-compose pull && docker-compose up -d
+
+   # View logs
+   docker-compose logs
+
+   # Restart the service
+   docker-compose restart
+   ```
+
+#### Environment-Specific Docker Compose
+
+For different environments, you can create specific compose files:
+
+**docker-compose.prod.yml** (Production):
+
+```yaml
+version: "3.8"
+
+services:
+  toolify:
+    image: ghcr.io/xyw110/toolify:latest
+    container_name: toolify-prod
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.prod.yaml:/app/config.yaml
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Add resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.5"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+```
+
+**docker-compose.dev.yml** (Development):
+
+```yaml
+version: "3.8"
+
+services:
+  toolify:
+    image: ghcr.io/xyw110/toolify:latest
+    container_name: toolify-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.dev.yaml:/app/config.yaml
+      # Mount source code for development (optional)
+      # - .:/app
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Enable more verbose logging for development
+    command:
+      ["main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+```
+
+To use environment-specific files:
+
+```bash
+# For production
+docker-compose -f docker-compose.prod.yml up -d
+
+# For development
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+#### Docker Compose with Custom Network
+
+For better container isolation, you can create a custom network:
+
+```yaml
+version: "3.8"
+
+services:
+  toolify:
+    image: ghcr.io/xyw110/toolify:latest
+    container_name: toolify
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+    networks:
+      - toolify-network
+    environment:
+      - PYTHONUNBUFFERED=1
+
+networks:
+  toolify-network:
+    driver: bridge
 ```
 
 ### Automated Publishing with GitHub Actions
