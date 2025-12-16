@@ -1,14 +1,21 @@
-version: '3.8'
+# Docker Compose configuration for Toolify
+# Uses the published image from GitHub Container Registry
 
 services:
   toolify:
-    image: toolify
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/xyw110/toolify:latest
     container_name: toolify
     ports:
       - "8000:8000"
     volumes:
       - ./config.yaml:/app/config.yaml
     restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Optional: Add health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
