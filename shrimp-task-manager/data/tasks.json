@@ -1,0 +1,86 @@
+{
+  "tasks": [
+    {
+      "id": "9f7862c1-176b-475e-8079-875cab6465bd",
+      "name": "Task 1: 修正 /proxy 路由定义和函数签名",
+      "description": "修改 main.py 中的 /proxy 路由，移除路径参数 {path:path}，并更新函数签名以不再接收 path 作为路径参数。这是修正工作的第一步，也是最关键的一步。",
+      "notes": "此修改将导致现有依赖路径参数的测试失败，后续任务将修复它们。",
+      "status": "pending",
+      "dependencies": [],
+      "createdAt": "2025-12-14T18:04:51.763Z",
+      "updatedAt": "2025-12-14T18:04:51.763Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "需要修改的路由定义和函数签名所在的文件。",
+          "lineStart": 1630,
+          "lineEnd": 1631
+        }
+      ],
+      "implementationGuide": "1. 在 main.py 中，定位到路由装饰器 `@app.api_route(\"/proxy/{path:path}\", ...)`。\n2. 将其修改为 `@app.api_route(\"/proxy\", ...)`，移除对 path 的捕获。\n3. 相应地，将函数签名 `async def proxy_route(path: str, request: Request):` 修改为 `async def proxy_route(request: Request):`，因为 path 不再作为参数传入。",
+      "verificationCriteria": "确认路由 /proxy 不再从URL路径中捕获任何部分作为 path 参数。确认 proxy_route 函数的签名已更新，不再接收 path 参数。",
+      "analysisResult": "核心目标是修正 /proxy 路由，使其不再从 URL 路径中捕获 path，而是改为从查询参数中获取。这要求我们修改路由定义、函数签名、参数获取方式以及上游 URL 的构建逻辑，并同步更新相关测试用例以确保功能的正确性。"
+    },
+    {
+      "id": "babd532b-1c94-4188-8c0b-51f7d05bfdfc",
+      "name": "Task 2: 从查询参数获取并验证 path",
+      "description": "在 proxy_route 函数内部，实现从请求的查询参数中获取新的 `path` 参数，并添加必要的验证逻辑，确保该参数存在且不为空。",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "9f7862c1-176b-475e-8079-875cab6465bd"
+        }
+      ],
+      "createdAt": "2025-12-14T18:04:51.763Z",
+      "updatedAt": "2025-12-14T18:04:51.763Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "需要添加参数获取、验证和日志更新逻辑的文件。",
+          "lineStart": 1642,
+          "lineEnd": 1651
+        }
+      ],
+      "implementationGuide": "1. 在 `proxy_route` 函数内部，紧跟在获取 `target_host` 的代码之后。\n2. 添加代码 `path = request.query_params.get(\"path\")` 来获取路径。\n3. 添加一个检查：`if not path:`，如果 `path` 不存在或为空，则应返回状态码为 400 的 JSONResponse，内容为 `{\"error\": \"Missing required query parameter: path\"}`。\n4. 将日志记录 `logger.info(f\"... 路径: /proxy/{path}\")` 修改为 `logger.info(f\"... 路径: /proxy, 查询参数 path: {path}\")`，以反映新的获取方式。",
+      "verificationCriteria": "确认当请求 `/proxy?targetHost=...` 但缺少 `path` 查询参数时，服务会正确返回 400 错误。确认当提供了 `path` 参数时，新的日志格式能正确记录其值。",
+      "analysisResult": "核心目标是修正 /proxy 路由，使其不再从 URL 路径中捕获 path，而是改为从查询参数中获取。这要求我们修改路由定义、函数签名、参数获取方式以及上游 URL 的构建逻辑，并同步更新相关测试用例以确保功能的正确性。"
+    },
+    {
+      "id": "599601e5-732e-4bb5-991c-a56580d3a016",
+      "name": "Task 3: 更新上游 URL 构建逻辑并适配测试",
+      "description": "修改 `_process_chat_request` 函数调用的 `override_url` 参数，确保它使用从查询参数中获取的新 `path` 变量来构建最终的上游 URL。同时，更新测试用例以匹配新的路由格式。",
+      "status": "pending",
+      "dependencies": [
+        {
+          "taskId": "babd532b-1c94-4188-8c0b-51f7d05bfdfc"
+        }
+      ],
+      "createdAt": "2025-12-14T18:04:51.763Z",
+      "updatedAt": "2025-12-14T18:04:51.763Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "需要更新 URL 构建逻辑的文件。",
+          "lineStart": 1668,
+          "lineEnd": 1672
+        },
+        {
+          "path": "test_proxy_non_streaming.py",
+          "type": "TO_MODIFY",
+          "description": "需要更新以匹配新路由格式的测试文件。"
+        },
+        {
+          "path": "test_proxy_streaming.py",
+          "type": "TO_MODIFY",
+          "description": "需要更新以匹配新路由格式的测试文件。"
+        }
+      ],
+      "implementationGuide": "1. 在 `proxy_route` 函数中，找到调用 `_process_chat_request` 的地方。\n2. 确认 `override_url` 参数的构建方式更新为 `override_url=f\"https://{target_host}{path}\"`。为了健壮性，建议使用 `f\"https://{target_host}/{path.lstrip('/')}\"` 来防止出现双斜杠。\n3. 打开 `test_proxy_non_streaming.py` 和 `test_proxy_streaming.py`。\n4. 将所有形如 `'http://localhost:8000/proxy/v1/chat/completions?targetHost=...'` 的 URL 修改为 `'http://localhost:8000/proxy?targetHost=...&path=/v1/chat/completions'`。\n5. 运行测试，确保所有测试用例都能通过。",
+      "verificationCriteria": "通过运行更新后的测试用例，确认请求能被正确转发到由 `targetHost` 和 `path` 参数构成的上游 URL。所有相关测试必须通过。",
+      "analysisResult": "核心目标是修正 /proxy 路由，使其不再从 URL 路径中捕获 path，而是改为从查询参数中获取。这要求我们修改路由定义、函数签名、参数获取方式以及上游 URL 的构建逻辑，并同步更新相关测试用例以确保功能的正确性。"
+    }
+  ]
+}

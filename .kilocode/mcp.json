@@ -1,0 +1,37 @@
+{
+  "mcpServers": {
+    "shrimp-task-manager": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "mcp-shrimp-task-manager"
+      ],
+      "env": {
+        "DATA_DIR": "D:\\Work\\Project\\ToolProject\\Toolify\\shrimp-task-manager\\data",
+        "TEMPLATES_USE": "zh",
+        "ENABLE_GUI": "true"
+      },
+      "alwaysAllow": [
+        "plan_task",
+        "analyze_task",
+        "split_tasks",
+        "reflect_task",
+        "list_tasks",
+        "execute_task",
+        "verify_task",
+        "delete_task",
+        "clear_all_tasks",
+        "update_task",
+        "query_task",
+        "get_task_detail",
+        "process_thought",
+        "init_project_rules",
+        "research_mode",
+        "update_task_status"
+      ],
+      "disabledTools": []
+    }
+  }
+}

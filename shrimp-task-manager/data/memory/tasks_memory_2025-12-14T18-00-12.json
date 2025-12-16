@@ -1,0 +1,135 @@
+{
+  "tasks": [
+    {
+      "id": "e96e2b68-5546-4be4-a931-1a0b46968e3c",
+      "name": "1.1: 提取核心AI处理逻辑为可重用辅助函数",
+      "description": "为了实现代码复用并避免重复，将 /v1/chat/completions 路由中的核心AI请求处理逻辑（包括模型查找、消息预处理、函数提示词注入等）提取到一个独立的、可重用的异步辅助函数中。",
+      "status": "completed",
+      "dependencies": [],
+      "createdAt": "2025-12-14T11:12:14.769Z",
+      "updatedAt": "2025-12-14T14:28:32.368Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "需要在此文件中定义新的辅助函数并重构现有路由。",
+          "lineStart": 986,
+          "lineEnd": 1060
+        }
+      ],
+      "implementationGuide": "1. 在 main.py 中，定义一个新的异步函数，例如 `async def _process_chat_request(body: ChatCompletionRequest, trigger_signal: str) -> tuple[dict, dict]:`。\n2. 将 `chat_completions` 函数（约第995行至1060行）中的逻辑，包括调用 `find_upstream`、`preprocess_messages`、`generate_function_prompt` 以及处理 `tool_choice` 的部分，完整地移动到这个新的辅助函数中。\n3. 辅助函数最终应返回一个元组 `(request_body_dict, upstream)`，其中 `request_body_dict` 是准备发往上游的、经过完全处理的请求体，`upstream` 是 `find_upstream` 函数返回的服务配置。",
+      "verificationCriteria": "1. 新创建的 `_process_chat_request` 函数可以被成功调用。\n2. 该函数返回的 `request_body_dict` 和 `upstream` 结构和内容符合预期。\n3. 原有 `chat_completions` 路由的功能在重构后不受影响。",
+      "analysisResult": "最终目标是创建一个名为 /proxy/{path:path} 的新路由。该路由能够动态地将带有AI函数调用注入能力的请求转发到由查询参数 targetHost 指定的上游服务器。它需要复用现有 /v1/chat/completions 的核心AI处理逻辑，但使用动态构建的目标URL，同时支持流式和非流式响应。",
+      "summary": "任务完成得非常出色！核心AI处理逻辑被成功提取到了一个独立、可重用的辅助函数 `_process_chat_request` 中，为后续的开发奠定了坚实的基础。",
+      "completedAt": "2025-12-14T14:28:32.365Z"
+    },
+    {
+      "id": "0f3b0350-d309-47b3-af1d-c9cfa64b838c",
+      "name": "1.2: 重构 /v1/chat/completions 路由以使用新辅助函数",
+      "description": "修改原始的 /v1/chat/completions 路由，使其调用新提取的 _process_chat_request 辅助函数。这不仅能验证辅助函数的正确性和可重用性，还能简化原路由的代码结构。",
+      "status": "completed",
+      "dependencies": [
+        {
+          "taskId": "e96e2b68-5546-4be4-a931-1a0b46968e3c"
+        }
+      ],
+      "createdAt": "2025-12-14T11:12:14.769Z",
+      "updatedAt": "2025-12-14T14:33:10.035Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "需要修改此路由以调用新的辅助函数。",
+          "lineStart": 986,
+          "lineEnd": 1060
+        }
+      ],
+      "implementationGuide": "1. 在 `chat_completions` 函数（第986行）内部，删除已被提取到辅助函数的旧代码。\n2. 在原位置插入对新辅助函数的调用：`request_body_dict, upstream = await _process_chat_request(body, GLOBAL_TRIGGER_SIGNAL)`。\n3. 确保函数后续的逻辑（约第1061行之后），如头部信息构建、非流式/流式请求的转发等，能够正确使用从辅助函数返回的 `request_body_dict` 和 `upstream`。",
+      "verificationCriteria": "1. `/v1/chat/completions` 路由的功能与重构前完全一致。\n2. 对该路由的非流式请求能够正确返回结果。\n3. 对该路由的流式请求能够正确返回SSE流。\n4. 涉及工具调用的请求能够正确触发函数调用流程。",
+      "analysisResult": "最终目标是创建一个名为 /proxy/{path:path} 的新路由。该路由能够动态地将带有AI函数调用注入能力的请求转发到由查询参数 targetHost 指定的上游服务器。它需要复用现有 /v1/chat/completions 的核心AI处理逻辑，但使用动态构建的目标URL，同时支持流式和非流式响应。",
+      "summary": "任务完成得非常出色！/v1/chat/completions 路由被成功重构，调用了新的辅助函数，代码结构更清晰，且功能与之前完全一致。",
+      "completedAt": "2025-12-14T14:33:10.028Z"
+    },
+    {
+      "id": "be35e61e-163a-48ad-b7a8-bc0a0812592a",
+      "name": "2.1: 增强代理路由以集成AI处理能力",
+      "description": "在现有的 /proxy/{path:path} 路由（第1577行）基础上进行扩展，使其能够接收POST请求体，并调用第一阶段重构的 `_process_chat_request` 辅助函数来处理请求。",
+      "status": "completed",
+      "dependencies": [
+        {
+          "taskId": "e96e2b68-5546-4be4-a931-1a0b46968e3c"
+        }
+      ],
+      "createdAt": "2025-12-14T11:12:14.769Z",
+      "updatedAt": "2025-12-14T14:35:57.122Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "需要大幅修改此路由以集成AI处理逻辑。",
+          "lineStart": 1577,
+          "lineEnd": 1624
+        }
+      ],
+      "implementationGuide": "1. 修改 `proxy_route` 函数（第1577行）的签名，使其能够接收 `body: ChatCompletionRequest`。\n2. 在函数内部，首先处理 `targetHost` 的提取和 `target_url` 的构建，这部分现有逻辑可以保留。\n3. 调用AI处理辅助函数：`processed_request_body, upstream_config = await _process_chat_request(body, GLOBAL_TRIGGER_SIGNAL)`。\n4. **关键**：使用从 `upstream_config` 中获取的 `api_key`，但上游URL则使用我们动态构建的 `target_url`。\n5. 为了便于测试，此阶段可暂时返回一个包含 `target_url`、`api_key` 和 `processed_request_body` 的JSON响应。",
+      "verificationCriteria": "1. 向 `/proxy/some/path?targetHost=...` 发送POST请求时，路由能正确解析 `ChatCompletionRequest` 请求体。\n2. 路由能成功调用 `_process_chat_request` 并获得处理后的请求体和上游配置。\n3. 临时返回的JSON响应中，`target_url` 是动态构建的，`api_key` 来自 `find_upstream` 的查找结果，请求体是经过AI注入处理的。",
+      "analysisResult": "最终目标是创建一个名为 /proxy/{path:path} 的新路由。该路由能够动态地将带有AI函数调用注入能力的请求转发到由查询参数 targetHost 指定的上游服务器。它需要复用现有 /v1/chat/completions 的核心AI处理逻辑，但使用动态构建的目标URL，同时支持流式和非流式响应。",
+      "summary": "任务完成得非常出色！/proxy 路由已成功集成AI处理能力，能够正确调用 `_process_chat_request` 辅助函数，并为下一步的请求转发做好了准备。",
+      "completedAt": "2025-12-14T14:35:57.119Z"
+    },
+    {
+      "id": "1e2bdd04-eb1b-4577-9d9a-6917078fcc0c",
+      "name": "2.2: 在代理路由中实现非流式请求的完整转发",
+      "description": "为 /proxy 路由实现完整的非流式（non-streaming）请求转发功能。这包括向上游发送HTTP请求，并对返回的响应（包括工具调用）进行解析和转换，最终以标准OpenAI格式返回给客户端。",
+      "status": "completed",
+      "dependencies": [
+        {
+          "taskId": "be35e61e-163a-48ad-b7a8-bc0a0812592a"
+        }
+      ],
+      "createdAt": "2025-12-14T11:12:14.769Z",
+      "updatedAt": "2025-12-14T14:38:35.340Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "在代理路由中添加完整的非流式请求处理逻辑。",
+          "lineStart": 1577,
+          "lineEnd": 1624
+        }
+      ],
+      "implementationGuide": "1. 在 `proxy_route` 函数中，添加 `if not body.stream:` 的逻辑分支。\n2. 在此分支内，使用 `httpx.AsyncClient` 将 `processed_request_body` 发送到动态构建的 `target_url`。\n3. `Authorization` 请求头应使用从 `upstream_config` 中获取的 `api_key`。\n4. 复制并调整 `chat_completions` 路由中处理非流式响应的逻辑（约第1073行至1184行），包括对上游响应的解析、token用量计算以及最重要的 `parse_function_calls_xml` 逻辑，以确保工具调用能被正确格式化。",
+      "verificationCriteria": "1. 对 `/proxy` 路由的非流式请求能成功转发到 `targetHost` 并获得响应。\n2. 当上游模型返回工具调用时，代理路由能正确解析XML，并将其转换为标准的OpenAI `tool_calls` 格式。\n3. 响应中的 `usage` 字段被正确计算和填充。\n4. 客户端收到的响应与直接调用标准OpenAI接口的格式一致。",
+      "analysisResult": "最终目标是创建一个名为 /proxy/{path:path} 的新路由。该路由能够动态地将带有AI函数调用注入能力的请求转发到由查询参数 targetHost 指定的上游服务器。它需要复用现有 /v1/chat/completions 的核心AI处理逻辑，但使用动态构建的目标URL，同时支持流式和非流式响应。",
+      "summary": "任务完成得非常出色！/proxy 路由的非流式请求转发功能已完美实现，能够正确处理上游响应，包括工具调用的解析和转换。",
+      "completedAt": "2025-12-14T14:38:35.336Z"
+    },
+    {
+      "id": "39dafc3c-c4ef-43db-b51d-2e8f06c843d7",
+      "name": "2.3: 在代理路由中实现流式请求的完整转发",
+      "description": "为 /proxy 路由添加完整的流式（streaming）请求转发功能。这需要处理SSE（Server-Sent Events）流，并能够实时地对流中的内容进行工具调用格式的转换。",
+      "status": "completed",
+      "dependencies": [
+        {
+          "taskId": "be35e61e-163a-48ad-b7a8-bc0a0812592a"
+        }
+      ],
+      "createdAt": "2025-12-14T11:12:14.769Z",
+      "updatedAt": "2025-12-14T14:41:31.584Z",
+      "relatedFiles": [
+        {
+          "path": "main.py",
+          "type": "TO_MODIFY",
+          "description": "在代理路由中添加完整的流式请求处理逻辑。",
+          "lineStart": 1577,
+          "lineEnd": 1624
+        }
+      ],
+      "implementationGuide": "1. 在 `proxy_route` 函数中，添加 `if body.stream:` 的逻辑分支。\n2. 在此分支内，返回一个 `StreamingResponse`。\n3. `StreamingResponse` 的内容生成器应调用 `stream_proxy_with_fc_transform` 函数（或一个为代理定制的新版本）。\n4. 确保将动态构建的 `target_url`、处理后的 `processed_request_body`、以及正确的 `api_key` 传递给流式处理函数。\n5. `stream_proxy_with_fc_transform` 内部的逻辑需要能够处理从上游接收到的SSE事件，并在检测到工具调用信号时进行实时转换。",
+      "verificationCriteria": "1. 对 `/proxy` 路由的流式请求能成功转发并建立SSE连接。\n2. 客户端能正确接收到来自上游的实时文本流。\n3. 当上游模型在流中输出工具调用时，代理能正确地将其转换为OpenAI标准的 `tool_calls` 块，并以SSE事件的形式发送给客户端。\n4. 流式响应以 `[DONE]` 标记正常结束。",
+      "analysisResult": "最终目标是创建一个名为 /proxy/{path:path} 的新路由。该路由能够动态地将带有AI函数调用注入能力的请求转发到由查询参数 targetHost 指定的上游服务器。它需要复用现有 /v1/chat/completions 的核心AI处理逻辑，但使用动态构建的目标URL，同时支持流式和非流式响应。",
+      "summary": "任务完成得非常出色！/proxy 路由的流式请求转发功能已完美实现，能够正确处理SSE流，并实时转换工具调用格式。",
+      "completedAt": "2025-12-14T14:41:31.580Z"
+    }
+  ]
+}

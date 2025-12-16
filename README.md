@@ -151,6 +151,7 @@ To use the dynamic AI proxy routing feature, send a POST request to the `/proxy`
 - **Request Body**: Standard OpenAI `chat/completions` request format
 
 Example curl request:
+
 ```bash
 curl -X POST "http://localhost:8000/proxy?targetHost=api.openai.com&path=/v1/chat/completions" \
   -H "Authorization: Bearer sk-my-secret-key-1" \
@@ -189,3 +190,75 @@ else:
 ## License
 
 This project is licensed under the GPL-3.0-or-later license.
+
+## Docker Deployment
+
+### Using Pre-built Images from GitHub Container Registry
+
+You can pull and run the pre-built Toolify image from GitHub Container Registry:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/funnycups/toolify:latest
+
+# Run the container
+docker run -p 8000:8000 -v $(pwd)/config.yaml:/app/config.yaml ghcr.io/funnycups/toolify:latest
+```
+
+### Building and Publishing to GitHub Container Registry
+
+To build and publish your own version of Toolify to GitHub Container Registry:
+
+1. **Make sure you have Docker installed and are logged in to GitHub:**
+
+   ```bash
+   docker login ghcr.io
+   ```
+
+2. **Run the publish script to build the Docker image:**
+
+   ```bash
+   # Make the script executable
+   chmod +x scripts/publish-docker.sh
+
+   # Run the script
+   ./scripts/publish-docker.sh
+   ```
+
+3. **Push the image to GitHub Container Registry:**
+
+   ```bash
+   # Push the versioned tag
+   docker push ghcr.io/your-username/toolify:version-tag
+
+   # Push the latest tag
+   docker push ghcr.io/your-username/toolify:latest
+   ```
+
+### Using Docker Compose with GitHub Container Registry
+
+You can update the `docker-compose.yml` file to use the image from GitHub Container Registry:
+
+```yaml
+version: "3.8"
+
+services:
+  toolify:
+    image: ghcr.io/your-username/toolify:latest # Use your actual username
+    container_name: toolify
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+```
+
+### Automated Publishing with GitHub Actions
+
+This project includes a GitHub Actions workflow that automatically builds and publishes Docker images when you push to the `main` branch or create a tag. To enable this:
+
+1. Make sure the `.github/workflows/docker-publish.yml` file exists in your repository
+2. The workflow will automatically run on pushes to `main` or when creating tags
+3. Images will be published to `ghcr.io/your-username/toolify`
+
+The workflow supports multi-platform builds (AMD64 and ARM64).
