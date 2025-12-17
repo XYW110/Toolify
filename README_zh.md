@@ -131,9 +131,9 @@ client = OpenAI(
 
 Toolify 负责处理标准 OpenAI 工具格式与不支持的 LLM 所需的基于提示词的方法之间的转换。
 
-## 动态AI代理路由
+## 动态 AI 代理路由
 
-Toolify 现在支持通过 `/proxy` 端点进行动态AI代理路由。此功能允许您通过查询参数指定目标主机和路径，动态地将请求路由到任何兼容 OpenAI 的 AI 服务。
+Toolify 现在支持通过 `/proxy` 端点进行动态 AI 代理路由。此功能允许您通过查询参数指定目标主机和路径，动态地将请求路由到任何兼容 OpenAI 的 AI 服务。
 
 ### 功能特性
 
@@ -144,13 +144,14 @@ Toolify 现在支持通过 `/proxy` 端点进行动态AI代理路由。此功能
 
 ### 使用方法
 
-要使用动态AI代理路由功能，请向 `/proxy` 端点发送 POST 请求，并包含以下参数：
+要使用动态 AI 代理路由功能，请向 `/proxy` 端点发送 POST 请求，并包含以下参数：
 
 - **查询参数**: `targetHost` - 目标上游 AI 服务器的域名
 - **查询参数**: `path` - 目标服务器上的 API 路径（例如 `/v1/chat/completions`）
 - **请求体**: 标准的 OpenAI `chat/completions` 请求格式
 
 示例 curl 请求：
+
 ```bash
 curl -X POST "http://localhost:8000/proxy?targetHost=api.openai.com&path=/v1/chat/completions" \
   -H "Authorization: Bearer sk-my-secret-key-1" \
@@ -189,3 +190,154 @@ else:
 ## 许可证
 
 本项目采用 GPL-3.0-or-later 许可证。
+
+## Docker 部署
+
+### 使用 GitHub Container Registry 的预构建镜像
+
+您可以拉取并运行从 GitHub Container Registry 获取的预构建 Toolify 镜像：
+
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/xyw110/toolify:latest
+
+# 运行容器
+docker run -p 8000:8000 -v $(pwd)/config.yaml:/app/config.yaml ghcr.io/xyw110/toolify:latest
+```
+
+### 使用 Docker Compose 与 GitHub Container Registry
+
+您可以更新 `docker-compose.yml` 文件以使用来自 GitHub Container Registry 的镜像：
+
+```yaml
+version: "3.8"
+
+services:
+  toolify:
+    image: ghcr.io/xyw110/toolify:latest # 使用您实际的用户名
+    container_name: toolify
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    restart: unless-stopped
+```
+
+#### 完整的 Docker Compose 设置指南
+
+1. **准备配置文件：**
+
+   ```bash
+   # 复制示例配置
+   cp config.example.yaml config.yaml
+   # 使用您的设置编辑配置文件
+   # 确保设置您的 API 密钥和上游服务
+   ```
+
+2. **创建或更新 `docker-compose.yml` 文件：**
+
+   ```yaml
+   version: "3.8"
+
+   services:
+     toolify:
+       image: ghcr.io/xyw110/toolify:latest
+       container_name: toolify
+       ports:
+         - "8000:8000"
+       volumes:
+         - ./config.yaml:/app/config.yaml
+         # 可选：添加日志的命名卷
+         # - toolify_logs:/app/logs
+       environment:
+         - PYTHONUNBUFFERED=1
+       restart: unless-stopped
+       # 可选：添加健康检查
+       healthcheck:
+         test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+         interval: 30s
+         timeout: 10s
+         retries: 3
+         start_period: 40s
+   # 可选：定义命名卷
+   # volumes:
+   #   toolify_logs:
+   ```
+
+3. **启动服务：**
+
+   ```bash
+   # 后台启动
+   docker-compose up -d
+
+   # 查看日志
+   docker-compose logs -f
+   ```
+
+4. **验证服务是否正在运行：**
+
+   ```bash
+   # 检查容器是否正在运行
+   docker-compose ps
+
+   # 测试 API
+   curl http://localhost:8000/
+   ```
+
+5. **管理服务：**
+
+   ```bash
+   # 停止服务
+   docker-compose down
+
+   # 更新到最新镜像
+   docker-compose pull && docker-compose up -d
+
+   # 查看日志
+   docker-compose logs
+
+   # 重启服务
+   docker-compose restart
+   ```
+
+### 自动化发布与 GitHub Actions
+
+此项目包含一个 GitHub Actions 工作流，当您推送到 `main` 分支或创建标签时，它会自动构建和发布 Docker 镜像。要启用此功能：
+
+1. 确保仓库中存在 `.github/workflows/docker-publish.yml` 文件
+2. 工作流将在推送到 `main` 或创建标签时自动运行
+3. 镜像将发布到 `ghcr.io/your-username/toolify`
+
+#### 故障排除：如果 GitHub Container Registry 镜像不可用
+
+如果在 24 小时后您仍然遇到 "manifest unknown" 错误，这可能表明 GitHub Actions 未成功运行。在这种情况下，您可以手动构建并推送镜像：
+
+1. **确保已登录到 GitHub Container Registry：**
+
+   ```bash
+   docker login ghcr.io
+   # 使用具有 'write:packages' 作用域的 GitHub 个人访问令牌
+   ```
+
+2. **手动构建并推送镜像：**
+
+   ```bash
+   # 构建带有适当标签的镜像
+   docker build -t ghcr.io/xyw110/toolify:latest -t ghcr.io/xyw110/toolify:$(git describe --tags --always) .
+
+   # 推送镜像
+   docker push ghcr.io/xyw110/toolify:latest
+   docker push ghcr.io/xyw110/toolify:$(git describe --tags --always)
+   ```
+
+3. **替代方案：使用手动构建脚本（如果可用）：**
+
+   ```bash
+   # 在 Unix 系统上
+   chmod +x scripts/build-and-push-manual.sh
+   ./scripts/build-and-push-manual.sh
+
+   # 在 Windows 上，您可以手动运行构建命令：
+   docker build -t ghcr.io/xyw110/toolify:latest .
+   docker push ghcr.io/xyw110/toolify:latest
+   ```
