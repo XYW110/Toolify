@@ -420,12 +420,46 @@ networks:
     driver: bridge
 ```
 
-### Automated Publishing with GitHub Actions
+## Automated Publishing with GitHub Actions
 
 This project includes a GitHub Actions workflow that automatically builds and publishes Docker images when you push to the `main` branch or create a tag. To enable this:
 
 1. Make sure the `.github/workflows/docker-publish.yml` file exists in your repository
 2. The workflow will automatically run on pushes to `main` or when creating tags
 3. Images will be published to `ghcr.io/your-username/toolify`
+
+### Troubleshooting: If GitHub Container Registry Image is Not Available
+
+If you encounter a "manifest unknown" error after 24+ hours, it may indicate that GitHub Actions did not run successfully. In this case, you can manually build and push the image:
+
+1. **Ensure you're logged into GitHub Container Registry:**
+
+   ```bash
+   docker login ghcr.io
+   # Use a GitHub Personal Access Token with 'write:packages' scope
+   ```
+
+2. **Build and push the image manually:**
+
+   ```bash
+   # Build the image with appropriate tags
+   docker build -t ghcr.io/xyw110/toolify:latest -t ghcr.io/xyw110/toolify:$(git describe --tags --always) .
+
+   # Push the image
+   docker push ghcr.io/xyw110/toolify:latest
+   docker push ghcr.io/xyw110/toolify:$(git describe --tags --always)
+   ```
+
+3. **Alternative: Use the manual build script (if available):**
+
+   ```bash
+   # On Unix systems
+   chmod +x scripts/build-and-push-manual.sh
+   ./scripts/build-and-push-manual.sh
+
+   # On Windows, you can run the build commands manually:
+   docker build -t ghcr.io/xyw110/toolify:latest .
+   docker push ghcr.io/xyw110/toolify:latest
+   ```
 
 The workflow supports multi-platform builds (AMD64 and ARM64).
