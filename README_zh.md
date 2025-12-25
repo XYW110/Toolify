@@ -302,11 +302,14 @@ services:
 
 ### 自动化发布与 GitHub Actions
 
-此项目包含一个 GitHub Actions 工作流，当您推送到 `main` 分支或创建标签时，它会自动构建和发布 Docker 镜像。要启用此功能：
+此项目包含多个 GitHub Actions 工作流，当您推送到 `main` 分支或创建标签时，它们会自动构建和发布 Docker 镜像。要启用此功能：
 
-1. 确保仓库中存在 `.github/workflows/docker-publish.yml` 文件
+1. 确保仓库中存在工作流文件：
+   - `.github/workflows/docker-publish.yml` - 原始多架构工作流
+   - `.github/workflows/docker-publish-simple.yml` - 单架构工作流（推荐用于更好的兼容性）
+   - `.github/workflows/docker-hub-publish.yml` - Docker Hub 发布工作流
 2. 工作流将在推送到 `main` 或创建标签时自动运行
-3. 镜像将发布到 `ghcr.io/your-username/toolify`
+3. 镜像将发布到 `ghcr.io/your-username/toolify` 或 Docker Hub
 
 #### 故障排除：如果 GitHub Container Registry 镜像不可用
 

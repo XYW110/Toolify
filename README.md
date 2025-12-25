@@ -422,11 +422,14 @@ networks:
 
 ## Automated Publishing with GitHub Actions
 
-This project includes a GitHub Actions workflow that automatically builds and publishes Docker images when you push to the `main` branch or create a tag. To enable this:
+This project includes GitHub Actions workflows that automatically build and publish Docker images when you push to the `main` branch or create a tag. To enable this:
 
-1. Make sure the `.github/workflows/docker-publish.yml` file exists in your repository
-2. The workflow will automatically run on pushes to `main` or when creating tags
-3. Images will be published to `ghcr.io/your-username/toolify`
+1. Make sure the workflow files exist in your repository:
+   - `.github/workflows/docker-publish.yml` - Original multi-arch workflow
+   - `.github/workflows/docker-publish-simple.yml` - Single-arch workflow (recommended for better compatibility)
+   - `.github/workflows/docker-hub-publish.yml` - Docker Hub publishing workflow
+2. The workflows will automatically run on pushes to `main` or when creating tags
+3. Images will be published to `ghcr.io/your-username/toolify` or Docker Hub
 
 ### Troubleshooting: If GitHub Container Registry Image is Not Available
 
