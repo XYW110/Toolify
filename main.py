@@ -1798,20 +1798,20 @@ async def proxy_route(request: Request):
             content={"error": "path query parameter is required"}
         )
     
-    # 验证 API 密钥
-    try:
-        # 从请求头中获取 Authorization
-        authorization = request.headers.get("Authorization", "")
-        if not authorization:
-            logger.warning("🔑 缺少 Authorization 头")
-            raise HTTPException(status_code=401, detail="Missing Authorization header")
+    # # 验证 API 密钥
+    # try:
+    #     # 从请求头中获取 Authorization
+    #     authorization = request.headers.get("Authorization", "")
+    #     if not authorization:
+    #         logger.warning("🔑 缺少 Authorization 头")
+    #         raise HTTPException(status_code=401, detail="Missing Authorization header")
         
-        # 调用 verify_api_key 函数进行验证
-        _api_key = await verify_api_key(authorization)
-        logger.debug(f"🔑 API 密钥验证通过")
-    except HTTPException as e:
-        logger.warning(f"🔑 API 密钥验证失败: {e.detail}")
-        raise e
+    #     # 调用 verify_api_key 函数进行验证
+    #     _api_key = await verify_api_key(authorization)
+    #     logger.debug(f"🔑 API 密钥验证通过")
+    # except HTTPException as e:
+    #     logger.warning(f"🔑 API 密钥验证失败: {e.detail}")
+    #     raise e
     
     # 处理 POST 请求（AI 请求）
     if request.method == "POST":
